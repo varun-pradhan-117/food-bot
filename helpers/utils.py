@@ -1,8 +1,11 @@
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+from dotenv import load_dotenv
+import os
 
+GOOGLE_SERVICE_CREDENTIALS= os.getenv("GOOGLE_SERVICE_CREDENTIALS")
 
-secrets_file="secrets/grocerbot-469403-e0151322280c.json"
+secrets_file=GOOGLE_SERVICE_CREDENTIALS
 
 def discounts_to_string(all_items, max_items=20):
     """
