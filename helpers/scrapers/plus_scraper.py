@@ -94,7 +94,7 @@ def scrape_aanbiedingen(url="https://www.plus.nl/aanbiedingen", out_dir="data"):
     containers=containers[1:]
     # Parse items in each container
     all_items = []
-    for container in containers:
+    for container in containers[:-3]: #Exclude last 3 containers as they are for household items
         links=container.select("a[data-link]")
         hrefs=[link["href"] for link in links]
         items=container.select("div[data-container].list-item-content-center")
