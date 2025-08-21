@@ -69,8 +69,10 @@ def scrape_aanbiedingen(url="https://www.plus.nl/aanbiedingen", out_dir="data"):
 
     # If today's file already exists, skip scraping
     if os.path.exists(out_file):
-        print(f"Already scraped today: {out_file}")
-        return out_file
+        with open(out_file, "r", encoding="utf-8") as f:
+            all_items = json.load(f)
+        print(f"Loaded existing file: {out_file}")
+        return out_file, all_items
     
     # If older files exist, delete them
     for fname in os.listdir(out_dir):
@@ -85,7 +87,7 @@ def scrape_aanbiedingen(url="https://www.plus.nl/aanbiedingen", out_dir="data"):
     main_list=soup.select("div.list.list-group.promotions-category-list")
     if not main_list:
         print("Promotions list not found.")
-        return
+        return out_file, []
 
     containers=main_list[0].select("div[data-container].plp-results-wrapper")
     # Exclude the first container
