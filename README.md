@@ -1,4 +1,4 @@
-# Bot - Albert Heijn Discord Bot (WIP)
+# Food Bot - Discount Retrieving Discord Bot (WIP)
 
 A Discord bot that helps users plan meals based on their pantry inventory and current store discounts from Albert Heijn. The bot integrates with Google Sheets for inventory management and uses Ollama AI for meal planning suggestions.
 
