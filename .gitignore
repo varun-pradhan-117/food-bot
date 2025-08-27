@@ -5,7 +5,7 @@ __pycache__
 
 secrets/
 data/
-
+recipe_data/
 
 *.html
 *.txt

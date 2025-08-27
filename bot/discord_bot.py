@@ -8,9 +8,9 @@ from ollama import AsyncClient
 import os
 import asyncio
 
-from db.mongo_utils import get_user_sheet, save_user_sheet
-from helpers.utils import read_sheet_to_string, discounts_to_string
-from helpers.scrapers.plus_scraper import scrape_aanbiedingen
+from misc_utils.db.async_utils import get_user_sheet, save_user_sheet
+from misc_utils.google_utils import read_sheet_to_string, discounts_to_string
+from misc_utils.scrapers.plus_scraper import scrape_aanbiedingen
 
 # Load environment variables
 load_dotenv()
