@@ -10,3 +10,4 @@ recipe_data/
 *.html
 *.txt
 test.ipynb
+experiment.ipynb
