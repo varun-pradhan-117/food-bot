@@ -19,16 +19,25 @@ def get_all_users():
     """Return all users with pantry sheets"""
     return list(pantry_col.find())
 
-def upsert_user_sheet(user_id: str, sheet_url: str, sheet_hash: str = None):
-    """Save or update a user's Google Sheet URL and optionally its last hash"""
-    update = {"sheet_url": sheet_url}
+def upsert_user(user_id: str, sheet_url: str = None, sheet_hash: str = None, preferences: dict = None):
+    """Save or update a user's sheet URL, hash, and preferences"""
+    update = {}
+    if sheet_url:
+        update["sheet_url"] = sheet_url
     if sheet_hash:
         update["last_hash"] = sheet_hash
+    if preferences:
+        update["preferences"] = preferences
+
     pantry_col.update_one(
         {"user_id": user_id},
         {"$set": update},
         upsert=True
     )
+
+def get_user(user_id: str):
+    """Fetch a user's document"""
+    return pantry_col.find_one({"user_id": user_id})
 
 def get_user_sheet_hash(user_id: str):
     """Retrieve the last hash for a user's sheet"""

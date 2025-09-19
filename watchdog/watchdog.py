@@ -1,4 +1,4 @@
-import time
+
 import hashlib
 from misc_utils.google_utils import fetch_sheet_as_df
 from db.sync_utils import (

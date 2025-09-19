@@ -8,9 +8,9 @@ from ollama import AsyncClient
 import os
 import asyncio
 
-from misc_utils.db.async_utils import get_user_sheet, save_user_sheet
+from db.async_utils import get_user_sheet, get_user, save_user
 from misc_utils.google_utils import read_sheet_to_string, discounts_to_string
-from misc_utils.scrapers.plus_scraper import scrape_aanbiedingen
+from scrapers import scrape_plus, scrape_ah, scrape_dm
 
 # Load environment variables
 load_dotenv()
@@ -26,7 +26,7 @@ def split_message(msg: str, limit: int = 2000):
 
 async def handle_registration(user):
     dm = await user.create_dm()
-    existing = await get_user_sheet(str(user.id))
+    existing = await get_user(str(user.id))
 
     if existing:
         await dm.send("You already have a sheet registered. Update it? (yes/no)")
@@ -40,16 +40,37 @@ async def handle_registration(user):
             await dm.send("Timed out. Try again.")
             return
 
+    # Get Google Sheet
     await dm.send("Send the Google Sheet URL you want to register:")
-
     def check_sheet(m): return m.author == user and isinstance(m.channel, discord.DMChannel)
     try:
         response = await bot.wait_for('message', check=check_sheet, timeout=300)
         sheet_url = response.content.strip()
-        await save_user_sheet(str(user.id), sheet_url)
-        await dm.send("Sheet registered successfully!")
     except asyncio.TimeoutError:
         await dm.send("Registration timed out. Please try again.")
+        return
+
+    # Get Preferences
+    await dm.send("Now, tell me your preferences in this format:\n"
+                  "`diet=vegetarian; allergies=peanuts,gluten; dislikes=mushrooms; likes=spicy`\n"
+                  "(leave blank if none)")
+
+    def check_prefs(m): return m.author == user and isinstance(m.channel, discord.DMChannel)
+    try:
+        pref_msg = await bot.wait_for('message', check=check_prefs, timeout=300)
+        prefs_text = pref_msg.content.strip()
+    except asyncio.TimeoutError:
+        prefs_text = ""
+
+    preferences = {}
+    if prefs_text:
+        for part in prefs_text.split(";"):
+            if "=" in part:
+                key, val = part.split("=", 1)
+                preferences[key.strip()] = [v.strip() for v in val.split(",")] if "," in val else val.strip()
+
+    await save_user(str(user.id), sheet_url=sheet_url, preferences=preferences)
+    await dm.send("Registration completed successfully!")
 
 @bot.event
 async def on_ready():
@@ -74,7 +95,7 @@ async def plan(ctx):
     # 2. Get discounts
     print("Checking discounts...")
     try:
-        _, discounts = scrape_aanbiedingen()
+        _, discounts = scrape_plus()
         if not discounts:
             discounts_text = "- No discounts available today." 
         else:
