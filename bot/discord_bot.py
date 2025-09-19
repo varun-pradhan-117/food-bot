@@ -8,8 +8,9 @@ from ollama import AsyncClient
 import os
 import asyncio
 
-from db.async_utils import get_user_sheet, get_user, save_user
-from misc_utils.google_utils import read_sheet_to_string, discounts_to_string
+from db.async_utils import get_user, save_user
+from misc_utils.google_utils import read_sheet_to_string
+from misc_utils.utils import discounts_to_string
 from scrapers import scrape_plus, scrape_ah, scrape_dm
 
 # Load environment variables
@@ -69,7 +70,20 @@ async def handle_registration(user):
                 key, val = part.split("=", 1)
                 preferences[key.strip()] = [v.strip() for v in val.split(",")] if "," in val else val.strip()
 
-    await save_user(str(user.id), sheet_url=sheet_url, preferences=preferences)
+    # After preferences step
+    await dm.send("Finally, list your nearby grocery stores (comma separated), e.g.:\n"
+                "`plus, ah, dm` (leave blank if none)")
+
+    def check_stores(m): return m.author == user and isinstance(m.channel, discord.DMChannel)
+    try:
+        store_msg = await bot.wait_for('message', check=check_stores, timeout=300)
+        stores_text = store_msg.content.strip()
+    except asyncio.TimeoutError:
+        stores_text = ""
+
+    grocery_stores = [s.strip() for s in stores_text.split(",")] if stores_text else []
+
+    await save_user(str(user.id), sheet_url=sheet_url, preferences=preferences, grocery_stores=grocery_stores)
     await dm.send("Registration completed successfully!")
 
 @bot.event
@@ -80,13 +94,60 @@ async def on_ready():
 async def register(ctx):
     await handle_registration(ctx.author)
     
+    
+@bot.command(name='preferences')
+async def preferences(ctx):
+    user = ctx.author
+    dm = await user.create_dm()
+    await dm.send("Send me your preferences in this format:\n"
+                  "`diet=vegan; allergies=nuts; dislikes=cilantro; likes=spicy`\n")
+
+    def check(m): return m.author == user and isinstance(m.channel, discord.DMChannel)
+    try:
+        msg = await bot.wait_for('message', check=check, timeout=300)
+        prefs_text = msg.content.strip()
+    except asyncio.TimeoutError:
+        await dm.send("Timed out. Try again.")
+        return
+
+    preferences = {}
+    if prefs_text:
+        for part in prefs_text.split(";"):
+            if "=" in part:
+                key, val = part.split("=", 1)
+                preferences[key.strip()] = [v.strip() for v in val.split(",")] if "," in val else val.strip()
+
+    await save_user(str(user.id), preferences=preferences)
+    await dm.send("Preferences updated successfully!")
+    
+@bot.command(name='stores')
+async def stores(ctx):
+    user = ctx.author
+    dm = await user.create_dm()
+    await dm.send("Send me your nearby grocery stores (comma separated), e.g.:\n"
+                  "`plus, ah, dm`")
+
+    def check(m): return m.author == user and isinstance(m.channel, discord.DMChannel)
+    try:
+        msg = await bot.wait_for('message', check=check, timeout=300)
+        stores_text = msg.content.strip()
+    except asyncio.TimeoutError:
+        await dm.send("Timed out. Try again.")
+        return
+
+    grocery_stores = [s.strip() for s in stores_text.split(",")] if stores_text else []
+
+    await save_user(str(user.id), grocery_stores=grocery_stores)
+    await dm.send("Nearby grocery stores updated successfully!")
+
+
 @bot.command(name="plan")
 async def plan(ctx):
     await ctx.send("Generating your meal plan...")
     
     # 1. Get user sheet if it exists
     print("Checking inventory...")
-    user_entry = await get_user_sheet(str(ctx.author.id))
+    user_entry = await get_user(str(ctx.author.id))
     if user_entry and "sheet_url" in user_entry:
         pantry_text = await read_sheet_to_string(user_entry["sheet_url"])
     else:

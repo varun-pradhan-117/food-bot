@@ -16,12 +16,19 @@ collection = db[COLLECTION_NAME]
 async def get_user(user_id: str):
     return await collection.find_one({"user_id": user_id})
 
-async def save_user(user_id: str, sheet_url: str = None, preferences: dict = None):
+async def save_user(
+    user_id: str,
+    sheet_url: str = None,
+    preferences: dict = None,
+    grocery_stores: list = None
+    ):
     update = {}
     if sheet_url:
         update["sheet_url"] = sheet_url
     if preferences:
         update["preferences"] = preferences
+    if grocery_stores:
+        update["grocery_stores"] = grocery_stores
 
     return await collection.update_one(
         {"user_id": user_id},
