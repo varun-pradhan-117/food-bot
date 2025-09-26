@@ -8,11 +8,23 @@ from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.webdriver.firefox.options import Options
 
+from transformers import MarianMTModel, MarianTokenizer
+
+# Load translation model once
+model_name = "Helsinki-NLP/opus-mt-nl-en"
+tokenizer = MarianTokenizer.from_pretrained(model_name)
+model = MarianMTModel.from_pretrained(model_name)
 
 maps={
     "plus":"plus",
     "albert heijn":"ah",
     "dekamarkt":"dm"
+}
+
+url_maps = {
+    "plus": "https://www.plus.nl/aanbiedingen",
+    "ah": "https://www.ah.nl/bonus",
+    "dm": "https://www.dekamarkt.nl/aanbiedingen",
 }
 
 def get_html(url="https://www.plus.nl/aanbiedingen"):
@@ -58,259 +70,143 @@ def save_offers(all_items,out_file):
         json.dump(all_items, f, ensure_ascii=False, indent=2)
     print(f"Saved {len(all_items)} items to {out_file}")
     
-def scrape_plus(url="https://www.plus.nl/aanbiedingen", out_dir="data"):
-    """
-    Scrape PLUS aanbiedingen page and save the items to a JSON file.
 
-    Args:
-        url (str, optional): URL to PLUS aanbiedingen. Defaults to "https://www.plus.nl/aanbiedingen".
-        out_dir (str, optional): Directory for storing the day's discounts. Defaults to "data".
+def translate_name(name: str) -> str:
+    """Translate a single product name from NL -> EN"""
+    if not name:
+        return None
+    inputs = tokenizer([name], return_tensors="pt", padding=True, truncation=True)
+    translated = model.generate(**inputs)
+    return tokenizer.decode(translated[0], skip_special_tokens=True)
 
-    Returns:
-        str: Path to the saved JSON file with today's discounts.
-        Optional[List[Dict[str, Any]]]: List of scraped items if successful.
-    """
-    # Make sure output dir exists
-    os.makedirs(out_dir, exist_ok=True)
+# ---------------------
+# Store-specific parsers
+# ---------------------
 
-    # Generate today's filename
-    today = datetime.now().strftime("%Y-%m-%d")
-    out_file = os.path.join(out_dir, f"plus_{today}.json")
-
-    # If today's file already exists, skip scraping
-    if os.path.exists(out_file):
-        with open(out_file, "r", encoding="utf-8") as f:
-            all_items = json.load(f)
-        print(f"Loaded existing file: {out_file}")
-        return out_file, all_items
-    
-    # If older files exist, delete them
-    for fname in os.listdir(out_dir):
-        if fname.startswith("plus_") and fname.endswith(".json"):
-            os.remove(os.path.join(out_dir, fname))
-            print(f"Deleted old file: {fname}")
-    
-    # Get HTML content
-    html= get_html(url)
-    soup = BeautifulSoup(html, "html.parser")
-
-    main_list=soup.select("div.list.list-group.promotions-category-list")
-    if not main_list:
-        print("Promotions list not found.")
-        return out_file, []
-
-    containers=main_list[0].select("div[data-container].plp-results-wrapper")
-    # Exclude the first container
-    containers=containers[1:]
-    # Parse items in each container
+def parse_plus(soup: BeautifulSoup):
     all_items = []
-    for container in containers[:-3]: #Exclude last 3 containers as they are for household items
-        links=container.select("a[data-link]")
-        hrefs=[link["href"] for link in links]
-        items=container.select("div[data-container].list-item-content-center")
+    main_list = soup.select("div.list.list-group.promotions-category-list")
+    if not main_list:
+        return all_items
+    containers = main_list[0].select("div[data-container].plp-results-wrapper")[1:-3]
+    for container in containers:
+        links = container.select("a[data-link]")
+        hrefs = [link["href"] for link in links]
+        items = container.select("div[data-container].list-item-content-center")
         for item in items:
-            # Promotion
-            promo_tag = item.select_one('.promo-offer-label span')
-            promotion = promo_tag.get_text(strip=True) if promo_tag else None
-
-            # Name and additional info
             name_tag = item.select_one('.plp-item-name span')
             name = name_tag.get_text(strip=True) if name_tag else None
-
-            # Extra info (per 500g, per 1000 gram, etc.)
+            translated = translate_name(name)
             extra_info_tag = item.select_one('.plp-item-complementary .multiline-truncation-text-1 span.OSFillParent')
             extra_info = extra_info_tag.get_text(strip=True) if extra_info_tag else None
-
-            # Discounted price
-            price_integer_tag = item.select_one('.product-header-price-integer span')
-            price_decimals_tag = item.select_one('.product-header-price-decimals span')
-            if price_integer_tag and price_decimals_tag:
-                discounted_price = f"{price_integer_tag.get_text(strip=True)}{price_decimals_tag.get_text(strip=True)}"
-            else:
-                discounted_price = None
-
-            # Original price
-            previous_price_tag = item.select_one('.product-header-price-previous span')
-            original_price = previous_price_tag.get_text(strip=True) if previous_price_tag else None
-            # Item data structure
-            item_data = {
+            promo_tag = item.select_one('.promo-offer-label span')
+            promotion = promo_tag.get_text(strip=True) if promo_tag else None
+            price_int = item.select_one('.product-header-price-integer span')
+            price_dec = item.select_one('.product-header-price-decimals span')
+            discounted = f"{price_int.get_text(strip=True)}{price_dec.get_text(strip=True)}" if price_int and price_dec else None
+            original_price_tag = item.select_one('.product-header-price-previous span')
+            original = original_price_tag.get_text(strip=True) if original_price_tag else None
+            all_items.append({
                 "name": name,
+                "name_translated": translated,
                 "extra_info": extra_info,
                 "promotion": promotion,
-                "discounted_price": discounted_price,
-                "original_price": original_price,
+                "discounted_price": discounted,
+                "original_price": original,
                 "href": hrefs[0] if hrefs else None
-            }
-            all_items.append(item_data)
-            #print(f"Name: {name}, Info: {extra_info}, Promotion: {promotion}, Discounted Price: {discounted_price}, Original Price: {original_price}")
-    save_offers(all_items,out_file)
-    return out_file, all_items
+            })
+    return all_items
 
-
-def scrape_ah(url="https://www.ah.nl/bonus", out_dir="data"):
-    """
-    Scrape AH bonus page and save the items to a JSON file.
-
-    Args:
-        url (str, optional): URL to AH bonus page.
-        out_dir (str, optional): Directory for storing the day's discounts. Defaults to "data".
-
-    Returns:
-        str: Path to the saved JSON file with today's discounts.
-        Optional[List[Dict[str, Any]]]: List of scraped items if successful.
-    """
-    # Make sure output dir exists
-    os.makedirs(out_dir, exist_ok=True)
-
-    # Generate today's filename
-    today = datetime.now().strftime("%Y-%m-%d")
-    out_file = os.path.join(out_dir, f"ah_{today}.json")
-
-    # If today's file already exists, skip scraping
-    if os.path.exists(out_file):
-        with open(out_file, "r", encoding="utf-8") as f:
-            all_items = json.load(f)
-        print(f"Loaded existing file: {out_file}")
-        return out_file, all_items
-    
-    # If older files exist, delete them
-    for fname in os.listdir(out_dir):
-        if fname.startswith("ah_") and fname.endswith(".json"):
-            os.remove(os.path.join(out_dir, fname))
-            print(f"Deleted old file: {fname}")
-    
-    # Get HTML content
-    html= get_html(url)
-    soup = BeautifulSoup(html, "html.parser")
-    
-    categories=soup.select("section.area-lane_root__If70y")
-    ct=0
-    for item in categories:
-        ct+=1
-        id=item.get("id")
-        if id=="drogisterij":
-            break
-    categories=categories[:ct-1]
-    all_items=[]
-    for cat in categories:
-        items = cat.select('a[data-testhook="promotion-card"]')
-        for card in items:
+def parse_ah(soup: BeautifulSoup):
+    all_items = []
+    categories = soup.select("section.area-lane_root__If70y")
+    cutoff = next((i for i, c in enumerate(categories) if c.get("id") == "drogisterij"), len(categories))
+    for cat in categories[:cutoff]:
+        for card in cat.select('a[data-testhook="promotion-card"]'):
             name_tag = card.select_one('[data-testhook="promotion-card-title"] span')
             name = name_tag.get_text(strip=True) if name_tag else None
-
-            # Extra info (optional description under the title)
+            translated = translate_name(name)
             extra_info_tag = card.select_one('[data-testhook="card-description"] span')
             extra_info = extra_info_tag.get_text(strip=True) if extra_info_tag else None
-
-            # Promotion (e.g. "2 voor 2.99", "€1 korting")
             promo_tag = card.select_one('[data-testhook="promotion-labels"] div[aria-label]')
             promotion = promo_tag["aria-label"] if promo_tag else None
-
-            # Discounted and original price
             price_container = card.select_one('[data-testhook="price"]')
-            discounted_price = price_container.get("data-testpricenow") if price_container else None
-            original_price = price_container.get("data-testpricewas") if price_container else None
-
-            # Link
+            discounted = price_container.get("data-testpricenow") if price_container else None
+            original = price_container.get("data-testpricewas") if price_container else None
             href = card.get("href")
-
-            item_data = {
+            all_items.append({
                 "name": name,
+                "name_translated": translated,
                 "extra_info": extra_info,
                 "promotion": promotion,
-                "discounted_price": discounted_price,
-                "original_price": original_price,
+                "discounted_price": discounted,
+                "original_price": original,
                 "href": href
-            }
-            all_items.append(item_data)
-    save_offers(all_items,out_file)
-    return out_file,all_items
+            })
+    return all_items
 
+def parse_dm(soup: BeautifulSoup):
+    all_items = []
+    categories = soup.select("section.offers__department")
+    cutoff = next((i for i, c in enumerate(categories) if "Drogisterij" in c.get_text()), len(categories))
+    for cat in categories[:cutoff]:
+        for card in cat.select("div.product__card--content"):
+            name_tag = card.select_one("p.title")
+            name = name_tag.get_text(strip=True) if name_tag else None
+            translated = translate_name(name)
+            extra_info_tag = card.select_one("span.addition")
+            extra_info = extra_info_tag.get_text(strip=True) if extra_info_tag else None
+            promo_tag = card.select_one("span.chip")
+            promotion = promo_tag.get_text(strip=True) if promo_tag else None
+            price_int = card.select_one("div.prices__offer span")
+            price_dec = card.select_one("div.prices__offer small span")
+            discounted = f"{price_int.get_text(strip=True)}{price_dec.get_text(strip=True)}" if price_int and price_dec else None
+            original_price_tag = card.select_one("span.regular.regular-strike")
+            original = original_price_tag.get_text(strip=True) if original_price_tag else None
+            all_items.append({
+                "name": name,
+                "name_translated": translated,
+                "extra_info": extra_info,
+                "promotion": promotion,
+                "discounted_price": discounted,
+                "original_price": original,
+                "href": None
+            })
+    return all_items
 
-def scrape_dm(url="https://www.dekamarkt.nl/aanbiedingen", out_dir="data"):
-    """
-    Scrape dekamarkt discount page and save the items to a JSON file.
+parsers = {
+    "plus": parse_plus,
+    "ah": parse_ah,
+    "dm": parse_dm,
+}
 
-    Args:
-        url (str, optional): URL to dekamarkt page.
-        out_dir (str, optional): Directory for storing the day's discounts. Defaults to "data".
-
-    Returns:
-        str: Path to the saved JSON file with today's discounts.
-        Optional[List[Dict[str, Any]]]: List of scraped items if successful.
-    """
+def scrape_store(store:str, out_dir="data"):
+    if store not in url_maps:
+        print(f"Store '{store}' not recognized. Available stores: {list(url_maps.keys())}")
+        return None, None, None
+    
     # Make sure output dir exists
     os.makedirs(out_dir, exist_ok=True)
 
     # Generate today's filename
     today = datetime.now().strftime("%Y-%m-%d")
-    out_file = os.path.join(out_dir, f"dm_{today}.json")
-
-    # If today's file already exists, skip scraping
+    out_file = os.path.join(out_dir, f"{store}_{today}.json")
+    
     if os.path.exists(out_file):
         with open(out_file, "r", encoding="utf-8") as f:
-            all_items = json.load(f)
+            items = json.load(f)
         print(f"Loaded existing file: {out_file}")
-        return out_file, all_items
+        return out_file, items
     
-    # If older files exist, delete them
     for fname in os.listdir(out_dir):
-        if fname.startswith("dm_") and fname.endswith(".json"):
+        if fname.startswith(f"{store}_") and fname.endswith(".json"):
             os.remove(os.path.join(out_dir, fname))
             print(f"Deleted old file: {fname}")
-            
-    # Get HTML content
-    html= get_html(url)
-    soup = BeautifulSoup(html, "html.parser")
     
-    categories=soup.select("section.offers__department")
-    ct=0
-    titles=[]
-    for cat in categories:
-        title=cat.select("h3")[0].get_text(strip=True)
-        
-        print(title)
-        if "Drogisterij" in title:
-            break
-        titles.append(title)
-        ct+=1
-        
-    all_items=[]
-    for cat in categories[:ct]:
-        items=cat.select("div.product__card--content")
-        for card in items:
-            # Name
-            name_tag = card.select_one("p.title")
-            name = name_tag.get_text(strip=True) if name_tag else None
-
-            # Extra info
-            extra_info_tag = card.select_one("span.addition")
-            extra_info = extra_info_tag.get_text(strip=True) if extra_info_tag else None
-
-            # Promotion (chip text like "130 GRAM 3,49")
-            promo_tag = card.select_one("span.chip")
-            promotion = promo_tag.get_text(strip=True) if promo_tag else None
-
-            # Discounted price
-            price_offer_int = card.select_one("div.prices__offer span")
-            price_offer_dec = card.select_one("div.prices__offer small span")
-            if price_offer_int and price_offer_dec:
-                discounted_price = f"{price_offer_int.get_text(strip=True)}{price_offer_dec.get_text(strip=True)}"
-            else:
-                discounted_price = None
-
-            # Original price
-            original_price_tag = card.select_one("span.regular.regular-strike")
-            original_price = original_price_tag.get_text(strip=True) if original_price_tag else None
-
-            item_data = {
-                "name": name,
-                "extra_info": extra_info,
-                "promotion": promotion,
-                "discounted_price": discounted_price,
-                "original_price": original_price,
-                "href": None  # this format doesn't have an <a> wrapper
-            }
-            all_items.append(item_data)
-    save_offers(all_items,out_file)
-    return out_file,all_items
+    html = get_html(url_maps[store])
+    soup = BeautifulSoup(html, "html.parser")
+    items = parsers[store](soup)
+    save_offers(items, out_file)
+    return out_file, items
+    
+    

@@ -7,11 +7,10 @@ from ollama import AsyncClient
 
 import os
 import asyncio
-
 from db.async_utils import get_user, save_user
 from misc_utils.google_utils import read_sheet_to_string
 from misc_utils.utils import discounts_to_string
-from scrapers import scrape_plus, scrape_ah, scrape_dm
+from scrapers import scrape_store, maps
 
 # Load environment variables
 load_dotenv()
@@ -148,21 +147,56 @@ async def plan(ctx):
     # 1. Get user sheet if it exists
     print("Checking inventory...")
     user_entry = await get_user(str(ctx.author.id))
-    if user_entry and "sheet_url" in user_entry:
-        pantry_text = await read_sheet_to_string(user_entry["sheet_url"])
+    
+    # Abort if user not registered
+    if not user_entry:
+        await ctx.send(
+            "I don't have your registration info. Please register first with `$register` "
+        )
+        return
+    
+    # Pantry
+    sheet_url = user_entry.get("sheet_url")
+    if sheet_url:
+        try:
+            pantry_text = await read_sheet_to_string(sheet_url)
+        except Exception as e:
+            await ctx.send("Failed to read your pantry sheet. Check the sharing settings.")
+            print(f"[plan] error reading sheet for user {ctx.author.id}: {e}")
+            pantry_text = "- No pantry items available."
     else:
         pantry_text = "- No pantry items available."
-        
-    # 2. Get discounts
+    
+    grocery_stores = user_entry.get("grocery_stores", []) 
+    
+    if not grocery_stores:
+        grocery_stores= list(maps.values())
+    
+    
+    # 2. Fetching discounts
+    store_dict = {store: {} for store in grocery_stores}
+    all_translated_names = []
     print("Checking discounts...")
-    try:
-        _, discounts = scrape_plus()
-        if not discounts:
-            discounts_text = "- No discounts available today." 
-        else:
-            discounts_text = discounts_to_string(discounts)    
-    except Exception as e:
-        discounts_text = "- Could not fetch discounts today."
+    for store in grocery_stores:
+        try:
+            out_file, items = scrape_store(store)
+            
+            if not items:
+                print(f"No discounts found for {store}")
+                continue
+            
+            # full details, store by store
+            store_dict[store] = items
+            
+            # only the translated names, for vector search
+            all_translated_names.extend(
+                item["name_translated"] for item in items if item.get("name_translated")
+            )
+            
+            print(f"{store}: {len(items)} items scraped")
+        
+        except Exception as e:
+            print(f"Error fetching {store}: {e}")
         
         
     # 3. Craft prompt for Ollama

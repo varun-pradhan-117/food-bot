@@ -11,3 +11,4 @@ recipe_data/
 *.txt
 test.ipynb
 experiment.ipynb
+qdrantdb/

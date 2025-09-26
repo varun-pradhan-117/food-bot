@@ -1,7 +1,5 @@
-from .scrapers import scrape_ah, scrape_plus, scrape_dm, maps
+from .scrapers import scrape_store, maps
 
-__all__ = ['scrape_ah', 
-           'scrape_plus', 
-           'scrape_dm', 
+__all__ = ['scrape_store',
            'maps']
 
