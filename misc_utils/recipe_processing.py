@@ -39,6 +39,21 @@ SOURCE_MAP = {
     "fn": "foodnetwork"
 }
 
+
+qclient = None
+
+def init_qdrant(path=None, url=None, api_key=None):
+    global qclient
+    if path:
+        qclient = QdrantClient(path=path)
+    elif url and api_key:
+        qclient = QdrantClient(url=url, api_key=api_key)
+    elif url:
+        qclient = QdrantClient(url=url)
+    else:
+        qclient = QdrantClient(":memory:")
+    return qclient
+
 def clean_ingredient(ingredient: str) -> str:
     """Remove unwanted tokens and trim whitespace"""
     return re.sub(r"\bADVERTISEMENT\b", "", ingredient).strip()
@@ -185,6 +200,57 @@ def save_to_qdrant(data, path=None, url=None, api_key=None, overwrite=True):
             points=points
         )
     print("Upserted", len(points), "points to Qdrant collection", QDRANT_COLLECTION)
+
+def search_recipes_qdrant(
+    item_list: list[str],
+    top_k: int = 5,
+    diet: str = None,
+    path: str = None,
+    url: str = None,
+    api_key: str = None,
+):
+    """Search Qdrant for recipes matching the given list of items."""
+    # optional diet filter
+    qfilter = None
+    if diet:
+        qfilter = models.Filter(
+            must=[models.FieldCondition(key="diet", match=models.MatchValue(value=diet))]
+        )
+    if not qclient:
+        init_qdrant(path=path, url=url, api_key=api_key)
+    # Embed all items together
+    query_text = "\n".join(item_list)
+    vector = embed_text(query_text)  # your embedding function
+
+    # Search Qdrant
+    hits = qclient.search(
+        collection_name=QDRANT_COLLECTION,
+        query_vector=vector,
+        query_filter=qfilter,
+        limit=top_k * 2,  # fetch extra for deduplication
+    )
+
+    # Deduplicate by title
+    seen_titles = set()
+    results = []
+    for hit in hits:
+        title = hit.payload.get("title")
+        if title and title not in seen_titles:
+            seen_titles.add(title)
+            results.append({
+                "score": hit.score,
+                "title": title,
+                "ingredients": hit.payload.get("ingredients"),
+                "instructions": hit.payload.get("instructions"),
+                "diet": hit.payload.get("diet"),
+                "source": hit.payload.get("source"),
+            })
+        if len(results) >= top_k:
+            break
+
+    return results
+    
+
 
 
 def main():

@@ -2,14 +2,13 @@ import discord
 from discord.ext import commands
 
 from dotenv import load_dotenv
-import ollama
 from ollama import AsyncClient
 
 import os
 import asyncio
 from db.async_utils import get_user, save_user
 from misc_utils.google_utils import read_sheet_to_string
-from misc_utils.utils import discounts_to_string
+from misc_utils.recipe_processing import search_recipes_qdrant
 from scrapers import scrape_store, maps
 
 # Load environment variables
@@ -145,7 +144,7 @@ async def plan(ctx):
     await ctx.send("Generating your meal plan...")
     
     # 1. Get user sheet if it exists
-    print("Checking inventory...")
+    print("Checking inventory")
     user_entry = await get_user(str(ctx.author.id))
     
     # Abort if user not registered
@@ -168,61 +167,83 @@ async def plan(ctx):
         pantry_text = "- No pantry items available."
     
     grocery_stores = user_entry.get("grocery_stores", []) 
+    preferences=user_entry.get("preferences", {})
+    diet=preferences.get("diet", None)
     
     if not grocery_stores:
         grocery_stores= list(maps.values())
     
     
-    # 2. Fetching discounts
+    # 2. Fetch discounts (offloaded to threads)
     store_dict = {store: {} for store in grocery_stores}
     all_translated_names = []
-    print("Checking discounts...")
+    print("Checking discounts")
+
     for store in grocery_stores:
         try:
-            out_file, items = scrape_store(store)
+            out_file, items = await asyncio.to_thread(scrape_store, store)
             
             if not items:
                 print(f"No discounts found for {store}")
                 continue
             
-            # full details, store by store
             store_dict[store] = items
-            
-            # only the translated names, for vector search
             all_translated_names.extend(
                 item["name_translated"] for item in items if item.get("name_translated")
             )
-            
             print(f"{store}: {len(items)} items scraped")
-        
+
         except Exception as e:
             print(f"Error fetching {store}: {e}")
         
-        
-    # 3. Craft prompt for Ollama
+    
+    # 3. Search recipes in Qdrant (offloaded too)
+    print("Searching recipes in Qdrant")
+    recipes = await asyncio.to_thread(
+        search_recipes_qdrant,
+        all_translated_names,
+        6,
+        diet,
+        os.getenv("QDRANT_PATH"),
+    )
+
+    if not recipes:
+        await ctx.send("No suitable recipes found right now.")
+        return
+
+    recipes_text = "\n\n".join(
+        f"Title: {r['title']}\nIngredients: {', '.join(r['ingredients'])}\nInstructions: {r['instructions'][:200]}..."
+        for r in recipes
+    )
+    print(f"{recipes_text}")
+    return
+    # 4. Craft prompt for Ollama
     prompt = f"""
-        You are a helpful chef AI. Using the pantry items below and the current store discounts, suggest a couple of recipes for breakfast and lunch+dinner(same or different) each.
-        Try to keep the recipers simple and concise, using simple ingredients.
-        Don't go overboard with the number of recipes or explanations.
-        Don't explain the recipes in depth, just give the main ingredients and a short description.
-        Don't give a massive list or anything like "IDEA" or what to stock up on.
-        Stick to a handful of recipes.
+        You are a helpful chef AI.
+        Using the pantry items below, current store discounts, and these retrieved recipes,
+        suggest a couple of meal ideas: 1–2 for breakfast, and 1–2 for lunch/dinner.
+        
+        - Keep recipes simple and concise
+        - Use pantry + discounted items if possible
+        - Don’t go overboard with explanations
+        - No giant lists or stocking advice, just a handful of ideas
+
         Pantry items:
         {pantry_text}
 
         Current discounts:
-        {discounts_text}
+        {', '.join(all_translated_names)}
 
-        Give concise recipe suggestions, combining pantry and discounted items if possible.
-        """
-        
-    # 4. Call Ollama
+        Retrieved recipes (use them as inspiration, adapt as needed):
+        {recipes_text}
+    """
+    # 5. Call Ollama
     print("Calling Ollama...")
     client = AsyncClient()
     message = {'role': 'user', 'content': prompt}
     response = await client.chat(model="deepseek-r1:8b", messages=[message])
 
-    # 5. Extract and send LLM output
+    # 6. Extract and send LLM output
     try:
         print(response)
         answer = response.message.content
