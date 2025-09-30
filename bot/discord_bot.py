@@ -212,31 +212,13 @@ async def plan(ctx):
         return
 
     recipes_text = "\n\n".join(
-        f"Title: {r['title']}\nIngredients: {', '.join(r['ingredients'])}\nInstructions: {r['instructions'][:200]}..."
+        f"Title: {r['title']}\nIngredients: {', '.join(r['ingredients'])}"
         for r in recipes
     )
     print(f"{recipes_text}")
     return
     # 4. Craft prompt for Ollama
-    prompt = f"""
-        You are a helpful chef AI.
-        Using the pantry items below, current store discounts, and these retrieved recipes,
-        suggest a couple of meal ideas: 1–2 for breakfast, and 1–2 for lunch/dinner.
-        
-        - Keep recipes simple and concise
-        - Use pantry + discounted items if possible
-        - Don’t go overboard with explanations
-        - No giant lists or stocking advice, just a handful of ideas
 
-        Pantry items:
-        {pantry_text}
-
-        Current discounts:
-        {', '.join(all_translated_names)}
-
-        Retrieved recipes (use them as inspiration, adapt as needed):
-        {recipes_text}
-    """
     # 5. Call Ollama
     print("Calling Ollama...")
     client = AsyncClient()
