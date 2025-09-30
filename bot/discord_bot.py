@@ -219,30 +219,12 @@ async def plan(ctx):
     )
     
     # 4. Craft prompt for Ollama
-    prompt = select_recipes(
-        pantry_items=pantry_text,
-        all_translated_names=all_translated_names,
-        recipes=recipes_text,
-        preferences=preferences_str
+    resp =await asyncio.to_thread(
+        select_recipes,
+        recipes_text,
+        preferences_str
     )
+    print(resp)
     return
-    # 5. Call Ollama
-    print("Calling Ollama...")
-    client = AsyncClient()
-    message = {'role': 'user', 'content': prompt}
-    response = await client.chat(model="deepseek-r1:8b", messages=[message])
-
-    # 6. Extract and send LLM output
-    try:
-        print(response)
-        answer = response.message.content
-        # Strip everything before </think>
-        if "</think>" in answer:
-            answer = answer.split("</think>", 1)[1].strip()
-        for chunk in split_message(answer):
-            await ctx.send(chunk)
-    except Exception as e:
-        print("Error extracting response from LLM: ",e)
-        await ctx.send("Could not get a response from the LLM.")
     
 bot.run(TOKEN)
