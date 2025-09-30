@@ -148,12 +148,16 @@ def parse_ah(soup: BeautifulSoup):
 def parse_dm(soup: BeautifulSoup):
     all_items = []
     categories = soup.select("section.offers__department")
-    cutoff = next((i for i, c in enumerate(categories) if "Drogisterij" in c.get_text()), len(categories))
+    cutoff = next((i for i, c in enumerate(categories) if "Snoep" in c.get_text()), len(categories))
     for cat in categories[:cutoff]:
+        if "Dranken" in cat.get_text():
+            continue
         for card in cat.select("div.product__card--content"):
             name_tag = card.select_one("p.title")
             name = name_tag.get_text(strip=True) if name_tag else None
             translated = translate_name(name)
+            if '/' in translated:
+                translated = translated.split('/')[0].strip()
             extra_info_tag = card.select_one("span.addition")
             extra_info = extra_info_tag.get_text(strip=True) if extra_info_tag else None
             promo_tag = card.select_one("span.chip")

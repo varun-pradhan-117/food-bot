@@ -10,6 +10,7 @@ from db.async_utils import get_user, save_user
 from misc_utils.google_utils import read_sheet_to_string
 from misc_utils.recipe_processing import search_recipes_qdrant
 from scrapers import scrape_store, maps
+from bot.deepseek_utils import select_recipes
 
 # Load environment variables
 load_dotenv()
@@ -169,7 +170,8 @@ async def plan(ctx):
     grocery_stores = user_entry.get("grocery_stores", []) 
     preferences=user_entry.get("preferences", {})
     diet=preferences.get("diet", None)
-    
+    preferences_str = ", ".join(f"{k}: {v}" for k, v in preferences.items())
+
     if not grocery_stores:
         grocery_stores= list(maps.values())
     
@@ -202,7 +204,7 @@ async def plan(ctx):
     recipes = await asyncio.to_thread(
         search_recipes_qdrant,
         all_translated_names,
-        6,
+        10,
         diet,
         os.getenv("QDRANT_PATH"),
     )
@@ -215,10 +217,15 @@ async def plan(ctx):
         f"Title: {r['title']}\nIngredients: {', '.join(r['ingredients'])}"
         for r in recipes
     )
-    print(f"{recipes_text}")
-    return
+    
     # 4. Craft prompt for Ollama
-
+    prompt = select_recipes(
+        pantry_items=pantry_text,
+        all_translated_names=all_translated_names,
+        recipes=recipes_text,
+        preferences=preferences_str
+    )
+    return
     # 5. Call Ollama
     print("Calling Ollama...")
     client = AsyncClient()
