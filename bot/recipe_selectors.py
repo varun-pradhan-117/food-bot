@@ -38,9 +38,11 @@ class RecipeSelector:
             {recipes}
         """)
         ])
+        self.model_name=model_name
         if model_name=='gemini':
             self.ds=init_chat_model("gemini-2.5-flash", model_provider="google_genai")
         else:
+            self.model_name='deepseek'
             self.ds=DeepSeekChat()
         self.recipe_selector=self.ds.with_structured_output(RecipeSelection)
         
@@ -51,7 +53,8 @@ class RecipeSelector:
             "preferences": preferences,
             "recipes": recipes
         })
-        print("Prompting deepseek")
+        print(f"Prompting {self.model_name}")
         result=self.recipe_selector.invoke(prompt)
+        print("Received response from model")
         #print(f"Prompt to DeepSeek:\n{prompt}\n---")
         return result

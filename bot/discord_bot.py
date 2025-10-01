@@ -230,9 +230,11 @@ async def plan(ctx):
     custom= resp.custom
     instructions = resp.instructions if custom else None
     formatted_msg=f"""
-    Here are your meal suggestions:\n
-    For breakfast you can try:\n" + {"\n".join(f"- {b}" for b in breakfast_options)} + "\n\n" +
-    "For lunch/dinner you can try:\n" + {"\n".join(f"- {l}" for l in lunch_options)}
+    Here are your meal suggestions:
+    For breakfast you can try
+    {"\n".join(f"- {b}" for b in breakfast_options)} \n
+    For lunch/dinner you can try:
+    {"\n".join(f"- {l}" for l in lunch_options)}
     """
     
     await ctx.send(formatted_msg)
