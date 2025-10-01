@@ -25,6 +25,16 @@ rs=RecipeSelector(model_name='gemini')
 def split_message(msg: str, limit: int = 2000):
     return [msg[i:i+limit] for i in range(0, len(msg), limit)]
 
+def match_recipes(selected_titles, recipes):
+    """Match model-selected titles with retrieved recipe objects"""
+    matched = []
+    for title in selected_titles:
+        for r in recipes:
+            if r["title"].lower() == title.lower():
+                matched.append(r)
+                break
+    return matched
+
 async def handle_registration(user):
     dm = await user.create_dm()
     existing = await get_user(str(user.id))
@@ -227,17 +237,40 @@ async def plan(ctx):
     )
     breakfast_options = resp.breakfast
     lunch_options = resp.lunch
-    custom= resp.custom
+    custom= resp.custom if resp.custom else False
     instructions = resp.instructions if custom else None
-    formatted_msg=f"""
-    Here are your meal suggestions:
-    For breakfast you can try
-    {"\n".join(f"- {b}" for b in breakfast_options)} \n
-    For lunch/dinner you can try:
-    {"\n".join(f"- {l}" for l in lunch_options)}
-    """
+    if custom and instructions:
+        selected_lunches = [f"{lunch_options[0]} (Instructions: {instructions})"]
+        selected_breakfasts= breakfast_options
+        formatted_msg=f"""
+        Here are your meal suggestions:
+        For breakfast you can try
+        {"\n".join(f"- {b}" for b in breakfast_options)} \n
+        For lunch/dinner you can try:
+        {"\n".join(f"- {l}" for l in selected_lunches)}
+        """
+    else:
+        # Match back to recipes from Qdrant
+        selected_breakfasts = match_recipes(breakfast_options, recipes)
+        selected_lunches = match_recipes(lunch_options, recipes)
+        def format_recipe(r):
+            return f"""
+                **{r['title']}**
+                Ingredients: {', '.join(r['ingredients'])}
+                Instructions: {r['instructions']}
+                """
+            
+
+        formatted_msg = f"""
+            Here are your meal suggestions:\n
+            **Breakfast options:**
+            {"\n".join(format_recipe(b) for b in selected_breakfasts)}
+            **Lunch/Dinner options:**
+            {"\n".join(format_recipe(l) for l in selected_lunches)}
+        """
     
-    await ctx.send(formatted_msg)
+    for chunk in split_message(formatted_msg):
+        await ctx.send(chunk)
 
     
 bot.run(TOKEN)

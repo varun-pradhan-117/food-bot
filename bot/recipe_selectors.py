@@ -24,7 +24,7 @@ class RecipeSelector:
             - Keep recipes simple and concise
             - No explanations, just the suggestions.
             - No need to explain the reasoning
-            - If none of the provided recipes are suitable, just suggest simple ideas based on pantry + discounts
+            - If none of the provided recipes are suitable, just suggest one dish each for breakfast and lunch/dinner
             - If suggesting a lunch/dinner option not from the retrieved recipes, provide concise cooking instructions
 
             """
