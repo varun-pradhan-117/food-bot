@@ -10,7 +10,7 @@ from db.async_utils import get_user, save_user
 from misc_utils.google_utils import read_sheet_to_string
 from misc_utils.recipe_processing import search_recipes_qdrant
 from scrapers import scrape_store, maps
-from bot.deepseek_utils import select_recipes
+from bot.recipe_selectors import RecipeSelector
 
 # Load environment variables
 load_dotenv()
@@ -20,6 +20,7 @@ TOKEN = os.getenv("DISCORD_TOKEN")
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix='$', intents=intents)
+rs=RecipeSelector(model_name='gemini')
 
 def split_message(msg: str, limit: int = 2000):
     return [msg[i:i+limit] for i in range(0, len(msg), limit)]
@@ -214,17 +215,27 @@ async def plan(ctx):
         return
 
     recipes_text = "\n\n".join(
-        f"Title: {r['title']}\nIngredients: {', '.join(r['ingredients'])}"
+        f"Title: {r['title']}\nIngredients: {', '.join(r['ingredients'])}"[:200]
         for r in recipes
     )
     
     # 4. Craft prompt for Ollama
     resp =await asyncio.to_thread(
-        select_recipes,
+        rs.select_recipes,
         recipes_text,
         preferences_str
     )
-    print(resp)
-    return
+    breakfast_options = resp.breakfast
+    lunch_options = resp.lunch
+    custom= resp.custom
+    instructions = resp.instructions if custom else None
+    formatted_msg=f"""
+    Here are your meal suggestions:\n
+    For breakfast you can try:\n" + {"\n".join(f"- {b}" for b in breakfast_options)} + "\n\n" +
+    "For lunch/dinner you can try:\n" + {"\n".join(f"- {l}" for l in lunch_options)}
+    """
+    
+    await ctx.send(formatted_msg)
+
     
 bot.run(TOKEN)
