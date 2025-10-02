@@ -8,7 +8,7 @@ data/
 recipe_data/
 
 *.html
-*.txt
+scratch.txt
 test.ipynb
 experiment.ipynb
 qdrantdb/
