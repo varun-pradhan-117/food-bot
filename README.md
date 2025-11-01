@@ -195,15 +195,6 @@ How it works:
 6. **Qdrant Not Queried**: Ensure you've built the index with `--to-qdrant` and `QDRANT_PATH` points to the same directory
 7. **Scraper Fails to Launch**: Install Firefox and ensure drivers are included in PATH
 
-### Data Cleaning Issues:
-
-If the data cleaning process fails or produces unexpected results:
-
-1. Verify all raw recipe files are present in `recipe_data/recipes_raw/`
-2. Check file permissions and ensure Python can read the JSON files
-3. Review the console output for specific error messages
-4. Ensure the `recipe_data/` directory structure is correct
-
 ### Logs:
 
 The bot will print status messages to the console when starting up and processing commands. The data cleaner also provides detailed progress information during the cleaning process.
@@ -228,14 +219,3 @@ Each recipe includes:
 - Vector store: Qdrant collection `recipes_vectors` (cosine distance, 768-dim)
 - Query: Discount item names are embedded and used to search relevant recipes
 
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Test the data cleaning process
-5. Submit a pull request
-
-## License
-
-This project uses the Eight Portions recipe dataset. Please refer to the LICENSE file in `recipe_data/recipes_raw/` for dataset usage terms.
